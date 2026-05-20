@@ -6,8 +6,24 @@ npm-debug.log*
 *.user
 *.suo
 *.cache.json
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+coverage/
+.coverage
+TestResults/
 
 WeatherApp/bin/
 WeatherApp/obj/
+WeatherApp/out/
+WeatherApp/publish/
 lab3-api/node_modules/
 lab3-api/dist/
+lab3-api/coverage/
