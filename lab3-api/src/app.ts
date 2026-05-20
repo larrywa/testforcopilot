@@ -7,6 +7,8 @@ import { validateTaskInput } from './middleware/validate-task';
 import { Task, TaskInput } from './types/task';
 
 const tasks: Task[] = [];
+const DEFAULT_TASK_LIST_LIMIT = 20;
+const MAX_TASK_LIST_LIMIT = 100;
 
 /**
  * Creates the Express application and registers API routes.
@@ -41,17 +43,102 @@ export function createApp() {
   };
 
   /**
-   * Lists all tasks currently stored by the API.
+   * Lists tasks using cursor-based pagination sorted by newest creation date first.
    *
-   * @param _req - Express request object. This endpoint does not accept route parameters.
-   * @param res - Express response object that sends `{ data: Task[] }`.
-   * @returns Sends a JSON response shaped as `{ data: Task[] }`.
+   * @param req - Express request object that optionally accepts `limit` and `cursor` query parameters.
+   * @param res - Express response object that sends `{ data: Task[], nextCursor: string | null, hasMore: boolean }`.
+   * @param next - Express next callback used to forward validation API errors for invalid query parameters.
+   * @returns Sends a paginated task response, or forwards `INVALID_QUERY_PARAMETER` to error middleware.
    *
    * @example
-   * curl -X GET http://localhost:3000/tasks
+   * curl -X GET "http://localhost:3000/tasks?limit=20"
    */
-  const listTasksHandler = (_req: Request, res: Response) => {
-    res.json({ data: tasks });
+  const listTasksHandler = (req: Request, res: Response, next: NextFunction) => {
+    const limitQuery = req.query.limit;
+    const cursorQuery = req.query.cursor;
+
+    if (Array.isArray(limitQuery) || (limitQuery !== undefined && typeof limitQuery !== 'string')) {
+      next(
+        new ApiError(
+          'Invalid limit query parameter. Expected a positive integer between 1 and 100.',
+          400,
+          'INVALID_QUERY_PARAMETER',
+        ),
+      );
+      return;
+    }
+
+    let limit = DEFAULT_TASK_LIST_LIMIT;
+    if (limitQuery !== undefined) {
+      const parsedLimit = Number(limitQuery);
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_TASK_LIST_LIMIT) {
+        next(
+          new ApiError(
+            'Invalid limit query parameter. Expected a positive integer between 1 and 100.',
+            400,
+            'INVALID_QUERY_PARAMETER',
+          ),
+        );
+        return;
+      }
+      limit = parsedLimit;
+    }
+
+    if (Array.isArray(cursorQuery) || (cursorQuery !== undefined && typeof cursorQuery !== 'string')) {
+      next(
+        new ApiError('Invalid cursor query parameter. Expected a single base64-encoded task id.', 400, 'INVALID_QUERY_PARAMETER'),
+      );
+      return;
+    }
+
+    const sortedTasks = [...tasks].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    let startIndex = 0;
+    if (cursorQuery !== undefined) {
+      let cursorTaskId = '';
+      try {
+        cursorTaskId = Buffer.from(cursorQuery, 'base64').toString('utf8');
+      } catch {
+        next(
+          new ApiError(
+            'Invalid cursor query parameter. Expected a base64-encoded task id.',
+            400,
+            'INVALID_QUERY_PARAMETER',
+          ),
+        );
+        return;
+      }
+
+      if (cursorTaskId.length === 0) {
+        next(
+          new ApiError(
+            'Invalid cursor query parameter. Expected a base64-encoded task id.',
+            400,
+            'INVALID_QUERY_PARAMETER',
+          ),
+        );
+        return;
+      }
+
+      const cursorTaskIndex = sortedTasks.findIndex((task) => task.id === cursorTaskId);
+      if (cursorTaskIndex === -1) {
+        next(
+          new ApiError(
+            'Invalid cursor query parameter. Cursor does not reference an existing task.',
+            400,
+            'INVALID_QUERY_PARAMETER',
+          ),
+        );
+        return;
+      }
+      startIndex = cursorTaskIndex + 1;
+    }
+
+    const data = sortedTasks.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < sortedTasks.length;
+    const nextCursor = hasMore && data.length > 0 ? Buffer.from(data[data.length - 1]!.id).toString('base64') : null;
+
+    res.json({ data, nextCursor, hasMore });
   };
 
   /**

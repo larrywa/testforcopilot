@@ -18,6 +18,8 @@ describe('Task API', () => {
       expect(response.status).toBe(200);
       expect(response.body.data).toHaveLength(1);
       expect(response.body.data[0]).toEqual(expect.objectContaining({ ...createdTask }));
+      expect(response.body.nextCursor).toBeNull();
+      expect(response.body.hasMore).toBe(false);
     });
 
     it('creates a task with HTTP 201', async () => {
@@ -172,6 +174,59 @@ describe('Task API', () => {
       expect(response.status).toBe(201);
       expect(response.body.data.description).toBe(longDescription);
       expect(response.body.data.description).toHaveLength(10000);
+    });
+  });
+
+  describe('pagination', () => {
+    it('returns the requested page size and pagination metadata', async () => {
+      for (let index = 0; index < 6; index += 1) {
+        await createTask(client, { title: `Task ${index}` });
+      }
+
+      const response = await client.get('/tasks?limit=5');
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(5);
+      expect(response.body.hasMore).toBe(true);
+      expect(response.body.nextCursor).toEqual(expect.any(String));
+      expect(response.body.data[0].title).toBe('Task 5');
+      expect(response.body.data[4].title).toBe('Task 1');
+    });
+
+    it('returns the next page when a valid cursor is provided', async () => {
+      for (let index = 0; index < 3; index += 1) {
+        await createTask(client, { title: `Cursor Task ${index}` });
+      }
+
+      const firstPageResponse = await client.get('/tasks?limit=2');
+      const secondPageResponse = await client.get(
+        `/tasks?limit=2&cursor=${encodeURIComponent(firstPageResponse.body.nextCursor as string)}`,
+      );
+
+      expect(firstPageResponse.status).toBe(200);
+      expect(firstPageResponse.body.data).toHaveLength(2);
+      expect(firstPageResponse.body.hasMore).toBe(true);
+      expect(secondPageResponse.status).toBe(200);
+      expect(secondPageResponse.body.data).toHaveLength(1);
+      expect(secondPageResponse.body.data[0].title).toBe('Cursor Task 0');
+      expect(secondPageResponse.body.hasMore).toBe(false);
+      expect(secondPageResponse.body.nextCursor).toBeNull();
+    });
+
+    it('returns HTTP 400 for invalid limit values', async () => {
+      const response = await client.get('/tasks?limit=0');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('INVALID_QUERY_PARAMETER');
+      expect(response.body.error.message).toContain('limit');
+    });
+
+    it('returns HTTP 400 for an invalid cursor', async () => {
+      const response = await client.get('/tasks?cursor=not-a-valid-cursor');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('INVALID_QUERY_PARAMETER');
+      expect(response.body.error.message).toContain('cursor');
     });
   });
 });
