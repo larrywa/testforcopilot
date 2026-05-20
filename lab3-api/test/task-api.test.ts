@@ -16,6 +16,8 @@ describe('Task API', () => {
       const response = await client.get('/tasks');
 
       expect(response.status).toBe(200);
+      expect(response.body.hasMore).toBe(false);
+      expect(response.body.nextCursor).toBeNull();
       expect(response.body.data).toHaveLength(1);
       expect(response.body.data[0]).toEqual(expect.objectContaining({ ...createdTask }));
     });
@@ -73,6 +75,14 @@ describe('Task API', () => {
   });
 
   describe('validation errors', () => {
+    it.each(['/tasks?limit=0', '/tasks?limit=101', '/tasks?limit=abc'])('rejects an invalid limit with HTTP 400 for %s', async (path) => {
+      const response = await client.get(path);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(response.body.error.details.errors).toContain('limit must be an integer between 1 and 100');
+    });
+
     it('rejects missing required fields with HTTP 400', async () => {
       const response = await client.post('/tasks').send({});
 
@@ -149,6 +159,42 @@ describe('Task API', () => {
   });
 
   describe('edge cases', () => {
+    it('returns paginated tasks sorted by createdAt descending', async () => {
+      jest.useFakeTimers();
+
+      try {
+        jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+        const oldestTask = await createTask(client, { title: 'Oldest task' });
+
+        jest.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+        const middleTask = await createTask(client, { title: 'Middle task' });
+
+        jest.setSystemTime(new Date('2026-01-01T00:00:02.000Z'));
+        const newestTask = await createTask(client, { title: 'Newest task' });
+
+        const firstPageResponse = await client.get('/tasks?limit=2');
+
+        expect(firstPageResponse.status).toBe(200);
+        expect(firstPageResponse.body.data.map((task: { id: string }) => task.id)).toEqual([
+          newestTask.id,
+          middleTask.id,
+        ]);
+        expect(firstPageResponse.body.hasMore).toBe(true);
+        expect(firstPageResponse.body.nextCursor).toBe(Buffer.from(middleTask.id, 'utf8').toString('base64'));
+
+        const secondPageResponse = await client.get(
+          `/tasks?limit=2&cursor=${encodeURIComponent(firstPageResponse.body.nextCursor as string)}`,
+        );
+
+        expect(secondPageResponse.status).toBe(200);
+        expect(secondPageResponse.body.data.map((task: { id: string }) => task.id)).toEqual([oldestTask.id]);
+        expect(secondPageResponse.body.hasMore).toBe(false);
+        expect(secondPageResponse.body.nextCursor).toBeNull();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('rejects an empty title with HTTP 400', async () => {
       const response = await client.post('/tasks').send(
         createTaskPayload({

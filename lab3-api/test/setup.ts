@@ -73,13 +73,22 @@ export async function createTask(
  * @returns A promise that resolves after all tasks are removed.
  */
 export async function clearTasks(client: TaskApiClient): Promise<void> {
-  const response = await client.get('/tasks');
+  const collectedTasks: Task[] = [];
+  let nextCursor: string | null = null;
 
-  expect(response.status).toBe(200);
+  do {
+    const query = nextCursor === null
+      ? '/tasks?limit=100'
+      : `/tasks?limit=100&cursor=${encodeURIComponent(nextCursor)}`;
+    const response = await client.get(query);
 
-  const tasks = response.body.data as Task[];
+    expect(response.status).toBe(200);
 
-  for (const task of tasks) {
+    collectedTasks.push(...(response.body.data as Task[]));
+    nextCursor = response.body.nextCursor as string | null;
+  } while (nextCursor !== null);
+
+  for (const task of collectedTasks) {
     await client.delete(`/tasks/${task.id}`).expect(204);
   }
 }

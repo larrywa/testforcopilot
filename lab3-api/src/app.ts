@@ -7,6 +7,71 @@ import { validateTaskInput } from './middleware/validate-task';
 import { Task, TaskInput } from './types/task';
 
 const tasks: Task[] = [];
+const DEFAULT_TASK_LIMIT = 20;
+const MAX_TASK_LIMIT = 100;
+
+function getSingleQueryValue(value: Request['query'][string]): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseLimit(value: Request['query'][string]): number {
+  const rawLimit = getSingleQueryValue(value);
+
+  if (rawLimit === undefined) {
+    return DEFAULT_TASK_LIMIT;
+  }
+
+  const parsedLimit = Number(rawLimit);
+
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_TASK_LIMIT) {
+    throw new ApiError(
+      `limit must be an integer between 1 and ${MAX_TASK_LIMIT}`,
+      400,
+      'VALIDATION_ERROR',
+      {
+        errors: [`limit must be an integer between 1 and ${MAX_TASK_LIMIT}`],
+      },
+    );
+  }
+
+  return parsedLimit;
+}
+
+function encodeCursor(taskId: string): string {
+  return Buffer.from(taskId, 'utf8').toString('base64');
+}
+
+function decodeCursor(cursor: string): string | null {
+  try {
+    const decodedValue = Buffer.from(cursor, 'base64').toString('utf8');
+
+    if (!decodedValue) {
+      return null;
+    }
+
+    const normalizedInput = cursor.replace(/=+$/, '');
+    const normalizedEncodedValue = encodeCursor(decodedValue).replace(/=+$/, '');
+
+    return normalizedInput === normalizedEncodedValue ? decodedValue : null;
+  } catch {
+    return null;
+  }
+}
+
+function listTasksInDescendingCreatedOrder(): Task[] {
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((left, right) => {
+      const createdAtComparison = right.task.createdAt.localeCompare(left.task.createdAt);
+
+      if (createdAtComparison !== 0) {
+        return createdAtComparison;
+      }
+
+      return right.index - left.index;
+    })
+    .map(({ task }) => task);
+}
 
 /**
  * Creates the Express application and registers API routes.
@@ -41,17 +106,56 @@ export function createApp() {
   };
 
   /**
-   * Lists all tasks currently stored by the API.
+   * Lists tasks currently stored by the API using cursor pagination.
    *
-   * @param _req - Express request object. This endpoint does not accept route parameters.
-   * @param res - Express response object that sends `{ data: Task[] }`.
-   * @returns Sends a JSON response shaped as `{ data: Task[] }`.
+   * @param req - Express request object that may include `limit` and `cursor` query parameters.
+   * @param res - Express response object that sends `{ data: Task[], nextCursor: string | null, hasMore: boolean }`.
+   * @param next - Express next callback used to forward validation errors.
+   * @returns Sends a paginated JSON response shaped as `{ data: Task[], nextCursor: string | null, hasMore: boolean }`.
    *
    * @example
-   * curl -X GET http://localhost:3000/tasks
+   * curl -X GET http://localhost:3000/tasks?limit=20
    */
-  const listTasksHandler = (_req: Request, res: Response) => {
-    res.json({ data: tasks });
+  const listTasksHandler = (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const limit = parseLimit(req.query.limit);
+      const cursor = getSingleQueryValue(req.query.cursor);
+      const sortedTasks = listTasksInDescendingCreatedOrder();
+
+      let startIndex = 0;
+
+      if (cursor !== undefined) {
+        const taskId = decodeCursor(cursor);
+
+        if (!taskId) {
+          throw new ApiError('cursor must be a valid base64-encoded task ID', 400, 'VALIDATION_ERROR', {
+            errors: ['cursor must be a valid base64-encoded task ID'],
+          });
+        }
+
+        const cursorIndex = sortedTasks.findIndex((task) => task.id === taskId);
+
+        if (cursorIndex === -1) {
+          throw new ApiError('cursor must reference an existing task', 400, 'VALIDATION_ERROR', {
+            errors: ['cursor must reference an existing task'],
+          });
+        }
+
+        startIndex = cursorIndex + 1;
+      }
+
+      const paginatedTasks = sortedTasks.slice(startIndex, startIndex + limit);
+      const hasMore = startIndex + limit < sortedTasks.length;
+      const nextCursor = hasMore ? encodeCursor(paginatedTasks[paginatedTasks.length - 1]!.id) : null;
+
+      res.json({
+        data: paginatedTasks,
+        nextCursor,
+        hasMore,
+      });
+    } catch (error) {
+      next(error);
+    }
   };
 
   /**
