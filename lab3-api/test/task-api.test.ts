@@ -16,6 +16,9 @@ describe('Task API', () => {
       const response = await client.get('/tasks');
 
       expect(response.status).toBe(200);
+      expect(response.headers['x-ratelimit-limit']).toBe('100');
+      expect(response.headers['x-ratelimit-remaining']).toBe('98');
+      expect(response.headers['x-ratelimit-reset']).toEqual(expect.any(String));
       expect(response.body.hasMore).toBe(false);
       expect(response.body.nextCursor).toBeNull();
       expect(response.body.data).toHaveLength(1);
@@ -159,6 +162,31 @@ describe('Task API', () => {
   });
 
   describe('edge cases', () => {
+    it('returns HTTP 429 with retry headers after exceeding the per-IP limit', async () => {
+      jest.useFakeTimers();
+
+      try {
+        jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+
+        for (let index = 0; index < 100; index += 1) {
+          const response = await client.get('/health');
+
+          expect(response.status).toBe(200);
+        }
+
+        const throttledResponse = await client.get('/health');
+
+        expect(throttledResponse.status).toBe(429);
+        expect(throttledResponse.headers['x-ratelimit-limit']).toBe('100');
+        expect(throttledResponse.headers['x-ratelimit-remaining']).toBe('0');
+        expect(throttledResponse.headers['x-ratelimit-reset']).toBe('1767225660');
+        expect(throttledResponse.headers['retry-after']).toBe('60');
+        expect(throttledResponse.body.error.code).toBe('RATE_LIMIT_EXCEEDED');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('returns paginated tasks sorted by createdAt descending', async () => {
       jest.useFakeTimers();
 

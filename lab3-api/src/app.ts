@@ -2,6 +2,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { ApiError } from './errors/api-error';
 import { errorHandler } from './middleware/error-handler';
+import { rateLimit } from './middleware/rate-limit';
 import { requestLogger } from './middleware/request-logger';
 import { validateTaskInput } from './middleware/validate-task';
 import { Task, TaskInput } from './types/task';
@@ -86,6 +87,7 @@ export function createApp() {
   const app = express();
 
   app.use(express.json());
+  app.use(rateLimit);
   app.use(requestLogger);
 
   /**

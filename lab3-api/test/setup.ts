@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, jest } from '@jest/globals';
 import { Express } from 'express';
 import request from 'supertest';
 import { createApp } from '../src/app';
+import { resetRateLimitState } from '../src/middleware/rate-limit';
 import { Task, TaskInput } from '../src/types/task';
 
 export type TaskApiClient = ReturnType<typeof request>;
@@ -17,6 +18,7 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+  resetRateLimitState();
 });
 
 /**
@@ -91,4 +93,6 @@ export async function clearTasks(client: TaskApiClient): Promise<void> {
   for (const task of collectedTasks) {
     await client.delete(`/tasks/${task.id}`).expect(204);
   }
+
+  resetRateLimitState();
 }
