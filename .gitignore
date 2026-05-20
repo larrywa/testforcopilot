@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 npm-debug.log*
+.vs/
+*.user
+*.suo
+*.cache.json
 
 WeatherApp/bin/
 WeatherApp/obj/
