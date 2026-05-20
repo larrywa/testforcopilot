@@ -136,7 +136,8 @@ export function createApp() {
 
     const data = sortedTasks.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < sortedTasks.length;
-    const nextCursor = hasMore && data.length > 0 ? Buffer.from(data[data.length - 1]!.id).toString('base64') : null;
+    const lastTask = data[data.length - 1];
+    const nextCursor = hasMore && lastTask ? Buffer.from(lastTask.id).toString('base64') : null;
 
     res.json({ data, nextCursor, hasMore });
   };
