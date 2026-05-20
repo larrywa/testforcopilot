@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+npm-debug.log*
+
+WeatherApp/bin/
+WeatherApp/obj/
+lab3-api/node_modules/
+lab3-api/dist/
