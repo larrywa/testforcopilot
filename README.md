@@ -4,7 +4,7 @@ This repository contains two API projects and a few supporting files used for ex
 
 ## Projects
 
-### `lab3-api`
+### `lab3-api-2`
 
 TypeScript task management API built with Express.
 
