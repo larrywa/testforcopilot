@@ -14,6 +14,7 @@ export interface BlogPostRepository {
 	create(input: CreateBlogPostInput): Promise<BlogPost>;
 }
 export interface CreateBlogPostRequest {
+    
 	body: Partial<CreateBlogPostInput>;
 }
 
